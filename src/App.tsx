@@ -9,7 +9,6 @@ interface PlanetData {
   color: string;
   displayRadius: number; // pixels for rendering
   orbitRadius: number; // pixels for rendering
-  speed: number; // relative speed
   description: string;
 }
 
@@ -23,7 +22,6 @@ const PLANETS: PlanetData[] = [
     color: '#b5b5b5',
     displayRadius: 4,
     orbitRadius: 60,
-    speed: 4.15,
     description: 'Самая маленькая и ближайшая к Солнцу планета.'
   },
   {
@@ -35,7 +33,6 @@ const PLANETS: PlanetData[] = [
     color: '#e8cda0',
     displayRadius: 7,
     orbitRadius: 90,
-    speed: 1.62,
     description: 'Самая горячая планета с плотной атмосферой из CO₂.'
   },
   {
@@ -47,7 +44,6 @@ const PLANETS: PlanetData[] = [
     color: '#4da6ff',
     displayRadius: 8,
     orbitRadius: 125,
-    speed: 1.0,
     description: 'Наш дом — единственная известная планета с жизнью.'
   },
   {
@@ -59,7 +55,6 @@ const PLANETS: PlanetData[] = [
     color: '#e05a3a',
     displayRadius: 5,
     orbitRadius: 165,
-    speed: 0.53,
     description: 'Красная планета с самой высокой горой в Солнечной системе.'
   },
   {
@@ -71,7 +66,6 @@ const PLANETS: PlanetData[] = [
     color: '#c88b3a',
     displayRadius: 18,
     orbitRadius: 220,
-    speed: 0.084,
     description: 'Самая большая планета — газовый гигант с Большим красным пятном.'
   },
   {
@@ -83,7 +77,6 @@ const PLANETS: PlanetData[] = [
     color: '#e8d082',
     displayRadius: 15,
     orbitRadius: 285,
-    speed: 0.034,
     description: 'Знаменита своими великолепными кольцами из льда и камня.'
   },
   {
@@ -95,7 +88,6 @@ const PLANETS: PlanetData[] = [
     color: '#7de8e8',
     displayRadius: 11,
     orbitRadius: 345,
-    speed: 0.012,
     description: 'Ледяной гигант, вращающийся «на боку» — ось наклонена на 98°.'
   },
   {
@@ -107,7 +99,6 @@ const PLANETS: PlanetData[] = [
     color: '#3f54e8',
     displayRadius: 10,
     orbitRadius: 400,
-    speed: 0.006,
     description: 'Самая далёкая планета с самыми сильными ветрами до 2100 км/ч.'
   }
 ];
@@ -119,9 +110,15 @@ function App() {
   const lastTimeRef = useRef<number>(0);
   const [isPlaying, setIsPlaying] = useState(true);
   const [speed, setSpeed] = useState(1);
+  const isPlayingRef = useRef(isPlaying);
+  const speedRef = useRef(speed);
+  useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
+  useEffect(() => { speedRef.current = speed; }, [speed]);
   const [selectedPlanet, setSelectedPlanet] = useState<PlanetData | null>(null);
   const [hoveredPlanet, setHoveredPlanet] = useState<string | null>(null);
   const planetPositionsRef = useRef<{ name: string; x: number; y: number; r: number }[]>([]);
+  // Свежая версия draw в ref — чтобы цикл анимации не перезапускался при каждом ререндере
+  const drawRef = useRef<(ctx: CanvasRenderingContext2D, width: number, height: number) => void>(() => {});
 
   const draw = useCallback((ctx: CanvasRenderingContext2D, width: number, height: number) => {
     const centerX = width / 2;
@@ -175,7 +172,9 @@ function App() {
     // Draw planets
     const positions: { name: string; x: number; y: number; r: number }[] = [];
     PLANETS.forEach((planet) => {
-      const angle = timeRef.current * planet.speed * 0.01;
+      // Угловая скорость обратно пропорциональна орбитальному периоду:
+      // при speed=1 Земля делает полный оборот примерно за 6 секунд
+      const angle = (timeRef.current / planet.orbitalPeriod) * 0.02 * Math.PI * 2;
       const x = centerX + Math.cos(angle) * planet.orbitRadius;
       const y = centerY + Math.sin(angle) * planet.orbitRadius;
 
@@ -230,6 +229,11 @@ function App() {
     planetPositionsRef.current = positions;
   }, [hoveredPlanet, selectedPlanet]);
 
+  // Держим drawRef актуальным без пересоздания цикла анимации
+  useEffect(() => {
+    drawRef.current = draw;
+  }, [draw]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -246,14 +250,14 @@ function App() {
 
     const animate = (timestamp: number) => {
       if (!lastTimeRef.current) lastTimeRef.current = timestamp;
-      const delta = timestamp - lastTimeRef.current;
+      const delta = Math.min(timestamp - lastTimeRef.current, 100); // защита от скачка при переключении вкладки
       lastTimeRef.current = timestamp;
 
-      if (isPlaying) {
-        timeRef.current += delta * speed * 0.06;
+      if (isPlayingRef.current) {
+        timeRef.current += delta * speedRef.current;
       }
 
-      draw(ctx, canvas.width, canvas.height);
+      drawRef.current(ctx, canvas.width, canvas.height);
       animationRef.current = requestAnimationFrame(animate);
     };
 
@@ -263,7 +267,7 @@ function App() {
       cancelAnimationFrame(animationRef.current);
       window.removeEventListener('resize', resize);
     };
-  }, [isPlaying, speed, draw]);
+  }, []); // цикл запускается один раз; isPlaying/speed читаются через refs
 
   const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
